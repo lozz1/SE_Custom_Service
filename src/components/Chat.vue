@@ -11,9 +11,9 @@
           <p>新增问题</p>
         </button>
         <div v-for="(item, index) in questionList" :key="index" class="question-item" ref="question-item">
-          <button class="col-11">
-            <p class="question questionBg"> <img src="../assets/chat.svg" width="14" height="14" />
-              {{ item }}
+          <button class="col-11" @click="getMessageList(item.chatId)">
+            <p class="question"> <img src="../assets/chat.svg" width="14" height="14" />
+              {{ item.title }}
             </p>
           </button>
         </div>
@@ -22,17 +22,17 @@
 
     <div class="chat-box" ref="chatBox">
       <div v-for="(item, index) in messageList" :key="index" class="chat-item">
-        <div v-if="item.name === name" class="chat-msg mine">
-          <p class="msg mineBg">{{ item.txt }}</p>
+        <div v-if="item.from === self_type" class="chat-msg mine">
+          <p class="msg mineBg">{{ item.content }}</p>
           <p class="user" :style="{ background: bg }">
-            {{ item.name.substring(item.name.length - 5, item.name.length) }}
+            {{ name }}
           </p>
         </div>
         <div v-else class="chat-msg other">
           <p class="user" :style="{ background: item.bg }">
-            {{ item.name.substring(item.name.length - 5, item.name.length) }}
+            {{ "service" }}
           </p>
-          <p class="msg otherBg">{{ item.txt }}</p>
+          <p class="msg otherBg">{{ item.content }}</p>
         </div>
       </div>
     </div>
@@ -48,22 +48,25 @@
 </template>
 
 <script>
-import { onMounted, onUnmounted, ref, reactive, nextTick, onUpdated } from "vue";
-
+import { onMounted, onUnmounted, ref, reactive, nextTick, onUpdated, createHydrationRenderer, computed } from "vue";
+import { useStore } from "vuex";
 import axios from "axios";
-
+axios.defaults.withCredentials = true;
 export default {
   name: "ChatRoom",
   setup() {
+    const store = useStore()
     let socket = null;
     const path = "wss://yejsgk.top/back/demo2/chat/patient";
     const textValue = ref("");
     const chatBox = ref(null);
     const texta = ref(null);
-    const name = new Date().getTime().toString();
     const bg = randomRgb();
-    const messageList = reactive([]);
-    const questionList = reactive([]);
+    const name = computed(() => store.getters['userModule/getPatientId']);
+    const self_type = computed(() => store.getters['userModule/getType']);
+    let messageList = reactive([]);   // 存储当前聊天室聊天内容
+    let questionList = reactive([]);  // 存储问题列表，string对象
+    let title_id_map = reactive(new Map())
 
     // WebSocket初始化
     function init() {
@@ -100,25 +103,60 @@ export default {
     }
 
 
-    // 监听信息
-    async function getQuestionList(msg) {
+
+    async function getQuestionList() {
       var url = "https://yejsgk.top/back/demo2/api/patient/chatroom/get/titles"
       axios.get(url)
         .then((response) => {
-          console.log(response)
+          var cur_state = response.data.state
+          var question_list_json = response.data.content
+          if (cur_state == 1) {
+            for (let i = 0; i < question_list_json.length; i++) {
+              questionList.push(question_list_json[i])
+              title_id_map.set(question_list_json[i].chatId, i)
+            }
+          }
         })
-      // const obj = JSON.parse(msg.data);
-      // questionList.push(obj);
-      // await nextTick();
-      // chatBox.value.scrollTop = chatBox.value.scrollHeight;
+    }
+
+    async function getMessageList(id) {
+      var url = "https://yejsgk.top/back/demo2/api/patient/chatroom/get/content"
+      await axios.get(url, {
+        params: {
+          id: id
+        }
+      })
+        .then((response) => {
+          console.log(response)
+          var state = response.data.state
+          var MessageList = response.data.content
+          console.log(MessageList)
+          for (let i = 0; i < MessageList.length; i++) {
+            messageList.push(MessageList[i])
+          }
+        })
     }
 
     async function getMessage(msg) {
-      const obj = JSON.parse(msg.data);
-      messageList.push(obj);
-      await nextTick(); // 异步更新DOM
-      chatBox.value.scrollTop = chatBox.value.scrollHeight; // 保持滚动条在底部
+      var msg_data = JSON.parse(msg.data)
+      if (msg_data.type == 1) {
+        getMessageList()
+      } else {
+        var chat2bedone_id = msg_data.data
+        console.log(chat2bedone_id)
+        var question_id = title_id_map.get(chat2bedone_id)
+        console.log(question_id)
+        console.log(title_id_map)
+        const not_done_question = questionList.splice(question_id, 1)[0]
+        questionList.unshift(not_done_question)
+      }
+      // const obj = JSON.parse(msg.data);
+      // messageList.push(obj);
+      // await nextTick(); // 异步更新DOM
+      // chatBox.value.scrollTop = chatBox.value.scrollHeight; // 保持滚动条在底部
+      // 获取socket消息
     }
+
     // 随机获取头像背景
     function randomRgb() {
       let R = Math.floor(Math.random() * 130 + 110);
@@ -130,9 +168,10 @@ export default {
     function send() {
       if (textValue.value.trim().length > 0) {
         const obj = {
-          name: name,
-          txt: textValue.value,
-          bg: bg,
+          content: textValue.value,
+          from: "patient",
+          time: "2020-03-24 12:30:31",
+          to: "service"
         };
         // socket.send(JSON.stringify(obj));
         messageList.push(obj);
@@ -141,7 +180,8 @@ export default {
       }
     }
 
-    function newQuestion() {
+    async function newQuestion() {
+      
       questionList.unshift("新的问题");
     }
 
@@ -156,9 +196,8 @@ export default {
     onMounted(() => {
       init();
       getQuestionList();
-      questionList.push("最近有点头疼");
-      questionList.push("腰疼");
-      questionList.push("眼睛胀痛");
+      console.log(name)
+      console.log(self_type)
     });
 
     onUnmounted(() => {
@@ -171,11 +210,13 @@ export default {
       questionList,
       messageList,
       name,
+      self_type,
       bg,
       chatBox,
       texta,
       randomRgb,
-      newQuestion
+      newQuestion,
+      getMessageList
     };
   },
 };
@@ -191,8 +232,8 @@ body {
 aside {
   display: flex;
   flex-direction: column;
-  width: 280px;
   margin: 0px;
+  width: 268px;
   min-height: 100vh;
   overflow: hidden;
   padding: 1rem;
@@ -236,11 +277,11 @@ aside {
 }
 
 .mineBg {
-  background: #98e165;
+  background: #70e7f0;
 }
 
 .otherBg {
-  background: #fff;
+  background: #f5e3e3;
 }
 
 .home {
@@ -334,11 +375,11 @@ aside {
 
 .user {
   font-weight: bold;
-  color: #fff;
+  color: #1a1010;
   position: relative;
   word-wrap: break-word;
-  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
-  width: 60px;
+  box-shadow: 0 2px 12px 0 rgba(38, 146, 92, 0.699);
+  width: 70px;
   height: 60px;
   line-height: 60px;
   border-radius: 8px;

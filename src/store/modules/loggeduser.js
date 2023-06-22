@@ -4,19 +4,21 @@ export default {
   namespaced: true,
   state() {
     return {
-      PatientId: null,
-      ServiceId: null,
+      PatientId: '',
+      ServiceId: '',
+      Type: '',
     };
   },
 
   mutations: {
     setPatientId(state, payload) {
-      state.PatientId = payload.PatientId;
+      state.PatientId = payload.username;
+      state.Type = 'patient'
       //console.log(state.loggedUserId)
     },
     setServiceId(state, payload) {
-      state.ServiceId = payload.ServiceId;
-
+      state.ServiceId = payload.username;
+      state.Type = 'service'
     }
   },
 
@@ -38,7 +40,9 @@ export default {
     getServiceId(state) {
       return state.ServiceId;
     },
-
+    getType(state) {
+      return state.Type;
+    }
 
   }
 

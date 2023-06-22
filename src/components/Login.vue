@@ -73,6 +73,7 @@
 
 <script>
 import axios from 'axios';
+axios.defaults.withCredentials = true;
 export default {
   setup() {
     return {
@@ -98,8 +99,9 @@ export default {
           if (data.state == 1) {
             if (this.loginData.type == 'patient') {
               this.$router.push('/chat');
-              this.$store.dispatch('usr/setPatientId');
+              this.$store.dispatch('userModule/addPatientId', { username: this.loginData.username });
             }
+            // 客服登录
           }
           else {
             const errorMessage = document.querySelector('#error-message');

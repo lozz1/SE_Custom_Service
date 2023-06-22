@@ -3,7 +3,7 @@ import userModule from'./modules/loggeduser.js'
 
 const store = createStore({
     modules:{
-        user:userModule,
+        userModule,
     },
    
 })
