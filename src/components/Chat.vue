@@ -7,9 +7,21 @@
       <div class="question-layout">
         <button class="col-8"
           style="margin: 0 6px;max-width: 80%;border-radius: 12px;padding: 8px;text-align: center;font-size: 16px;"
-          @click="newQuestion">
+          @click="asknewQuestion = true">
           <p>新增问题</p>
         </button>
+        <el-dialog v-model="asknewQuestion" title="问题描述" :close-on-click-modal="true">
+          <el-input type="textarea" v-model="new_title" @keyup.enter="newQuestion()" />
+          <template #footer>
+            <span class="dialog-footer">
+              <el-button type="primary" @click="newQuestion(); asknewQuestion = false;">
+                确认
+              </el-button>
+              <el-button @click="asknewQuestion = false">取消</el-button>
+            </span>
+          </template>
+
+        </el-dialog>
         <div v-for="(item, index) in questionList" :key="index" class="question-item" ref="question-item">
           <button class="col-11" @click="getMessageList(item.chatId)">
             <p class="question"> <img src="../assets/chat.svg" width="14" height="14" />
@@ -42,13 +54,34 @@
 
       <div class="send-box">
         <p class="send active" @click="send">发送</p>
+        <!-- Button trigger modal -->
+        <p class="send active" @click="ShowForm = true">完成</p>
+
+        <el-dialog v-model="ShowForm" title="请给服务评分" :close-on-click-modal="true">
+          <span class="ml-3 w-35 text-gray-600 inline-flex items-center">评分分数从0到5：</span>
+          <el-input type="text" v-model="star" @keyup.enter="Feedback()" />
+          <template #footer>
+            <span class="dialog-footer">
+              <el-button type="primary" @click="Feedback(); ShowForm = false;">
+                确认
+              </el-button>
+              <el-button @click="ShowForm = false">取消</el-button>
+            </span>
+          </template>
+
+        </el-dialog>
       </div>
     </div>
+
+    <!-- <div v-if="isselectChat">
+      已经选择聊天室
+    </div>
+    <div v-else>请选择聊天室</div> -->
   </div>
 </template>
 
 <script>
-import { onMounted, onUnmounted, ref, reactive, nextTick, onUpdated, createHydrationRenderer, computed } from "vue";
+import { onMounted, onUnmounted, ref, reactive, nextTick, onUpdated, computed } from "vue";
 import { useStore } from "vuex";
 import axios from "axios";
 axios.defaults.withCredentials = true;
@@ -66,7 +99,13 @@ export default {
     const self_type = computed(() => store.getters['userModule/getType']);
     let messageList = reactive([]);   // 存储当前聊天室聊天内容
     let questionList = reactive([]);  // 存储问题列表，string对象
-    let title_id_map = reactive(new Map())
+    let title_id_map = reactive(new Map());
+    let undoneChatId = '';
+    let new_title = ref('');
+    let ChatDone = ref(false);
+    let ShowForm = ref(false);
+    let asknewQuestion = ref(false)
+    let star = ref('');
 
     // WebSocket初始化
     function init() {
@@ -102,8 +141,6 @@ export default {
       alert("socket关闭");
     }
 
-
-
     async function getQuestionList() {
       var url = "https://yejsgk.top/back/demo2/api/patient/chatroom/get/titles"
       axios.get(url)
@@ -120,6 +157,8 @@ export default {
     }
 
     async function getMessageList(id) {
+      // isselectChat = true;
+      messageList.splice(0, messageList.length)
       var url = "https://yejsgk.top/back/demo2/api/patient/chatroom/get/content"
       await axios.get(url, {
         params: {
@@ -142,11 +181,9 @@ export default {
       if (msg_data.type == 1) {
         getMessageList()
       } else {
-        var chat2bedone_id = msg_data.data
-        console.log(chat2bedone_id)
-        var question_id = title_id_map.get(chat2bedone_id)
-        console.log(question_id)
-        console.log(title_id_map)
+        var undone_chat_id = msg_data.data
+        undoneChatId = undone_chat_id
+        var question_id = title_id_map.get(undone_chat_id)
         const not_done_question = questionList.splice(question_id, 1)[0]
         questionList.unshift(not_done_question)
       }
@@ -164,25 +201,96 @@ export default {
       let B = Math.floor(Math.random() * 130 + 110);
       return "rgb(" + R + "," + G + "," + B + ")";
     }
+    function getTime() {
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      const hours = String(now.getHours()).padStart(2, '0');
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      const seconds = String(now.getSeconds()).padStart(2, '0');
+
+      const formattedTime = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+      return formattedTime;
+    }
     // 发送消息
-    function send() {
-      if (textValue.value.trim().length > 0) {
-        const obj = {
+    async function send() {
+      if (textValue.value.trim().length > 0 & current_chat_id !== null) {
+        const formattedTime = getTime();
+        const show_obj = {
           content: textValue.value,
           from: "patient",
-          time: "2020-03-24 12:30:31",
+          time: formattedTime,
           to: "service"
         };
-        // socket.send(JSON.stringify(obj));
-        messageList.push(obj);
+        const send_obj = {
+          type: 1,
+          id: undoneChatId,
+          msg: textValue.value,
+          time: formattedTime,
+        };
+        var send_obj_json = JSON.stringify(send_obj)
+        console.log(send_obj)
+        // socket.send(send_obj_json);
+        messageList.push(show_obj);
         textValue.value = "";
         texta.value.focus();
       }
     }
-
+    // 新增问题
     async function newQuestion() {
-      
-      questionList.unshift("新的问题");
+      var url = "https://yejsgk.top/back/demo2/api/patient/chatroom/upload/new-chat"
+      var formattedTime = getTime();
+      console.log(new_title)
+      await axios.post(url, {
+        content: new_title.value,
+        time: formattedTime,
+      })
+        .then((response) => {
+          console.log(response);
+          var response_data = response.data
+          if (response_data.state == 0) {
+            alert("有没结束的聊天")
+          }
+          else if (response_data.state == 1 && response_data.content == null) {
+            alert("没有客服在")
+          }
+          else {
+            new_title = ''
+            getQuestionList()
+            undoneChatId = response_data.content
+            getMessageList(undoneChatId)
+          }
+
+        }).catch((erorr) => {
+          console.log(error)
+        })
+    }
+
+    async function Feedback() {
+      console.log("call ChatDone")
+      var url = "https://yejsgk.top/back/demo2/api/patient/chatroom/delete/chat"
+      var formattedTime = getTime();
+      await axios.post(url, {
+        content: star.value,
+        time: formattedTime,
+      })
+        .then((response) => {
+          console.log(response);
+          var response_data = response.data
+          if (response_data.state == 0) {
+            alert("failed")
+          }
+          else {
+            console.log("delete success")
+            star = ''
+            getQuestionList()
+            undoneChatId = ''
+          }
+
+        }).catch((erorr) => {
+          console.log(error)
+        })
     }
 
     function close() {
@@ -196,12 +304,10 @@ export default {
     onMounted(() => {
       init();
       getQuestionList();
-      console.log(name)
-      console.log(self_type)
     });
 
     onUnmounted(() => {
-      // socket.onclose = close;
+      socket.onclose = close;
     });
 
     return {
@@ -211,12 +317,18 @@ export default {
       messageList,
       name,
       self_type,
+      undoneChatId,
       bg,
       chatBox,
       texta,
       randomRgb,
       newQuestion,
-      getMessageList
+      getMessageList,
+      asknewQuestion,
+      ShowForm,
+      star,
+      new_title,
+      Feedback,
     };
   },
 };
@@ -232,21 +344,16 @@ body {
 aside {
   display: flex;
   flex-direction: column;
+  grid-column: 1/2;
   margin: 0px;
-  width: 268px;
-  min-height: 100vh;
+  height: 100%;
   overflow: hidden;
   padding: 1rem;
 
   background-color: #777799;
-  color: var(--light);
 
   transition: 0.2s ease-out;
 
-  @media (max-width: 1920px) {
-    position: fixed;
-    z-index: 99;
-  }
 }
 
 ::-webkit-scrollbar {
@@ -284,37 +391,17 @@ aside {
   background: #f5e3e3;
 }
 
-.home {
-  position: fixed;
-  top: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 100%;
-  height: 100%;
-  min-width: 360px;
-  min-height: 430px;
-  box-shadow: 0 0 24px 0 rgb(19 70 80 / 25%);
-}
-
-.count {
-  height: 5%;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  background: #EEEAE8;
-  font-size: 16px;
-}
-
-
 .chat_interface {
   display: grid;
-  grid-template-columns: auto;
-  gap: 0px;
-  grid-auto-rows: minmax(100px, auto);
+  grid-template-columns: repeat(7, 1fr);
+  grid-template-rows: repeat(1, 1fr);
+  /* gap: 0px; */
+  /* grid-auto-rows: minmax(100px, auto); */
 }
 
 .chat-box {
-  grid-column: 2/7;
+  grid-column: 2/8;
+  grid-row: 1/2;
   width: 100%;
   height: 800px;
   background-color: #f4f4f4;
@@ -322,15 +409,14 @@ aside {
 }
 
 .footer {
-  grid-column: 2/7;
-  grid-row: 2;
+  grid-column: 2/8;
   width: 100%;
   height: 100%;
   background-color: #fff;
 }
 
 .footer textarea {
-  grid-column: 2/7;
+  grid-column: 2/8;
   width: 100%;
   height: 100%;
   background: #ffe2e2;
@@ -386,10 +472,6 @@ aside {
   text-align: center;
 }
 
-.question-layout {
-  grid-column: 1/5;
-}
-
 .question {
   margin: 0 10px;
   max-width: 100%;
@@ -436,5 +518,22 @@ aside {
     opacity: 1;
     transform: none;
   }
+}
+
+/* .el-button--text {
+  margin-right: 15px;
+} */
+
+.dialog-footer button:first-child {
+  margin-right: 10px;
+}
+
+.el-input {
+  width: 150px;
+}
+
+.el-button {
+  min-width: 50px;
+  min-height: 40px;
 }
 </style>
