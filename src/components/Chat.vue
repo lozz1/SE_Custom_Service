@@ -49,7 +49,7 @@
       </div>
     </div>
 
-    <div class="footer">
+    <div class="footer" v-if="currentChatId !== ''">
       <textarea placeholder="请输入问题..." v-model="textValue" autofocus ref="texta" @keyup.enter="send"></textarea>
 
       <div class="send-box">
@@ -72,16 +72,11 @@
         </el-dialog>
       </div>
     </div>
-
-    <!-- <div v-if="isselectChat">
-      已经选择聊天室
-    </div>
-    <div v-else>请选择聊天室</div> -->
   </div>
 </template>
 
 <script>
-import { onMounted, onUnmounted, ref, reactive, nextTick, onUpdated, computed } from "vue";
+import { onMounted, onUnmounted, ref, reactive, onUpdated, computed } from "vue";
 import { useStore } from "vuex";
 import axios from "axios";
 axios.defaults.withCredentials = true;
@@ -91,21 +86,21 @@ export default {
     const store = useStore()
     let socket = null;
     const path = "wss://yejsgk.top/back/demo2/chat/patient";
-    const textValue = ref("");
-    const chatBox = ref(null);
+    const textValue = ref(""); // 输入框文本内容
+    const chatBox = ref(null); // 聊天室主体
     const texta = ref(null);
-    const bg = randomRgb();
-    const name = computed(() => store.getters['userModule/getPatientId']);
-    const self_type = computed(() => store.getters['userModule/getType']);
+    const bg = randomRgb();  // 随机头像颜色
+    const name = computed(() => store.getters['userModule/getPatientId']); // Vuex获取登录用户的ID
+    const self_type = computed(() => store.getters['userModule/getType']);  // Vuex获取登录用户的类型
     let messageList = reactive([]);   // 存储当前聊天室聊天内容
     let questionList = reactive([]);  // 存储问题列表，string对象
-    let title_id_map = reactive(new Map());
-    let undoneChatId = '';
-    let new_title = ref('');
-    let ChatDone = ref(false);
-    let ShowForm = ref(false);
-    let asknewQuestion = ref(false)
-    let star = ref('');
+    let title_id_map = reactive(new Map()); // 应对服务器发送的 UndoneChatId，映射: [questionList_index, chatid]
+    let undoneChatId = '';  // 存储当前 UndoneChatId
+    let currentChatId = '';
+    let new_title = ref(''); // 存储新增问题时的问题描述
+    let ShowForm = ref(false); // 评分弹窗显示
+    let star = ref(''); // 存储评分
+    let asknewQuestion = ref(false) // 新增问题弹窗显示
 
     // WebSocket初始化
     function init() {
@@ -141,13 +136,13 @@ export default {
       alert("socket关闭");
     }
 
+    // 获取问题列表
     async function getQuestionList() {
       var url = "https://yejsgk.top/back/demo2/api/patient/chatroom/get/titles"
       axios.get(url)
         .then((response) => {
-          var cur_state = response.data.state
           var question_list_json = response.data.content
-          if (cur_state == 1) {
+          if (response.data.state == 1) {
             for (let i = 0; i < question_list_json.length; i++) {
               questionList.push(question_list_json[i])
               title_id_map.set(question_list_json[i].chatId, i)
@@ -156,8 +151,9 @@ export default {
         })
     }
 
+    // 获取某个问题下的消息列表
     async function getMessageList(id) {
-      // isselectChat = true;
+      currentChatId = id
       messageList.splice(0, messageList.length)
       var url = "https://yejsgk.top/back/demo2/api/patient/chatroom/get/content"
       await axios.get(url, {
@@ -168,30 +164,41 @@ export default {
         .then((response) => {
           console.log(response)
           var state = response.data.state
-          var MessageList = response.data.content
-          console.log(MessageList)
-          for (let i = 0; i < MessageList.length; i++) {
-            messageList.push(MessageList[i])
+          if (response.data.state == 1) {
+            var MessageList = response.data.content
+            console.log(MessageList)
+            for (let i = 0; i < MessageList.length; i++) {
+              messageList.push(MessageList[i])
+            }
           }
         })
     }
 
+    // 获取服务器发送的消息：
+    // - UndoneChatId
+    // - 客服发送消息
     async function getMessage(msg) {
       var msg_data = JSON.parse(msg.data)
       if (msg_data.type == 1) {
-        getMessageList()
-      } else {
-        var undone_chat_id = msg_data.data
-        undoneChatId = undone_chat_id
-        var question_id = title_id_map.get(undone_chat_id)
-        const not_done_question = questionList.splice(question_id, 1)[0]
-        questionList.unshift(not_done_question)
+        // 客服发送消息
+        var chatId = msg_data.chatId;
+        if (this.undoneChatId == chatId) {
+          var row = {
+            type: msg.type,
+            id: chatId,
+            msg: data.text,
+            time: data.time,
+          }
+          this.MessageList.push(row)
+        } else {
+          // 发送未结束问题id
+          var undone_chat_id = msg_data.data
+          undoneChatId = undone_chat_id
+          var question_id = title_id_map.get(undone_chat_id)
+          const not_done_question = questionList.splice(question_id, 1)[0]
+          questionList.unshift(not_done_question)
+        }
       }
-      // const obj = JSON.parse(msg.data);
-      // messageList.push(obj);
-      // await nextTick(); // 异步更新DOM
-      // chatBox.value.scrollTop = chatBox.value.scrollHeight; // 保持滚动条在底部
-      // 获取socket消息
     }
 
     // 随机获取头像背景
@@ -201,6 +208,8 @@ export default {
       let B = Math.floor(Math.random() * 130 + 110);
       return "rgb(" + R + "," + G + "," + B + ")";
     }
+
+    // 获取时间函数
     function getTime() {
       const now = new Date();
       const year = now.getFullYear();
@@ -213,9 +222,11 @@ export default {
       const formattedTime = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
       return formattedTime;
     }
-    // 发送消息
+
+    // 病人发送消息
     async function send() {
-      if (textValue.value.trim().length > 0 & current_chat_id !== null) {
+      // 消息不为空，且有未结束问题
+      if (textValue.value.trim().length > 0 & this.undoneChatId !== '' & this.undoneChatId === this.currentChatId) {
         const formattedTime = getTime();
         const show_obj = {
           content: textValue.value,
@@ -237,6 +248,7 @@ export default {
         texta.value.focus();
       }
     }
+
     // 新增问题
     async function newQuestion() {
       var url = "https://yejsgk.top/back/demo2/api/patient/chatroom/upload/new-chat"
@@ -250,16 +262,16 @@ export default {
           console.log(response);
           var response_data = response.data
           if (response_data.state == 0) {
-            alert("有没结束的聊天")
+            alert("还有问题没有结束")
           }
           else if (response_data.state == 1 && response_data.content == null) {
-            alert("没有客服在")
+            alert("当前没有客服在线")
           }
           else {
             new_title = ''
             getQuestionList()
             undoneChatId = response_data.content
-            getMessageList(undoneChatId)
+            messageList.splice(0, messageList.length)
           }
 
         }).catch((erorr) => {
@@ -267,6 +279,7 @@ export default {
         })
     }
 
+    // 评分并关闭问题
     async function Feedback() {
       console.log("call ChatDone")
       var url = "https://yejsgk.top/back/demo2/api/patient/chatroom/delete/chat"
@@ -284,8 +297,10 @@ export default {
           else {
             console.log("delete success")
             star = ''
-            getQuestionList()
             undoneChatId = ''
+            currentChatId = ''
+            messageList.splice(0, messageList.length)
+            getQuestionList()
           }
 
         }).catch((erorr) => {
@@ -311,23 +326,24 @@ export default {
     });
 
     return {
-      send,
       textValue,
       questionList,
       messageList,
       name,
       self_type,
+      currentChatId,
       undoneChatId,
       bg,
       chatBox,
       texta,
-      randomRgb,
-      newQuestion,
-      getMessageList,
       asknewQuestion,
       ShowForm,
       star,
       new_title,
+      send,
+      randomRgb,
+      newQuestion,
+      getMessageList,
       Feedback,
     };
   },
